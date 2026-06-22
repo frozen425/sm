@@ -1,0 +1,19 @@
+# Compiled binaries
+sm
+sm.exe
+
+# Local environment overrides
+.env
+.env.local
+.env.production
+.env.development
+.env.staging
+.env.test
+
+# Test outputs
+*.test
+*.out
+*.prof
+
+# OS files
+.DS_Store
