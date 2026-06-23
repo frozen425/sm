@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -205,7 +204,7 @@ func main() {
 		token := resolveToken(*cliToken)
 		ts, err := getGCPTokenSource(ctx, token)
 		if err != nil {
-			log.Fatalf("Failed to retrieve GCP credentials: %v", err)
+			log.Fatalf("Failed to retrieve GCP credentials: %v\n\nTo authenticate sm with GCP Secret Manager, please run the official Google Cloud CLI command:\n  gcloud auth application-default login\n\nFor automated environments, export the GCP_ACCESS_TOKEN variable.", err)
 		}
 
 		client, err := secretmanager.NewClient(ctx, option.WithTokenSource(ts), option.WithUserAgent("sm/1.0.0"))
@@ -356,20 +355,7 @@ func detectProject(cliProject string) string {
 		return p
 	}
 
-	// Fallback to active gcloud config
-	gcloudPath, err := exec.LookPath("gcloud")
-	if err == nil && isSecureGcloudPath(gcloudPath) {
-		// #nosec G204
-		cmd := exec.Command(gcloudPath, "config", "get-value", "project")
-		var stdout bytes.Buffer
-		cmd.Stdout = &stdout
-		if err := cmd.Run(); err == nil {
-			p := strings.TrimSpace(stdout.String())
-			if p != "" && !strings.Contains(p, "unset") && !strings.Contains(p, "Error") {
-				return p
-			}
-		}
-	}
+
 
 	// Fallback to Compute Engine metadata server
 	if metadata.OnGCE() {
@@ -856,24 +842,12 @@ func runStatus(projectFlag, serviceFlag, reasonFlag, cliToken string) {
 	fmt.Println("  Secret Manager API: Accessible (Successfully listed secrets)")
 }
 
-// runLogin triggers the GCP application-default login flow
+// runLogin prints secure instructions for manual authentication
 func runLogin() {
-	gcloudPath, err := exec.LookPath("gcloud")
-	if err != nil || !isSecureGcloudPath(gcloudPath) {
-		log.Fatalf("Error: 'gcloud' CLI not found in PATH or failed execution safety checks.\nPlease install Google Cloud SDK securely to authenticate: https://cloud.google.com/sdk/docs/install")
-	}
-
-	fmt.Println("Authenticating sm (Secret Manager)...")
-	// #nosec G204
-	cmd := exec.Command(gcloudPath, "auth", "application-default", "login")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	// #nosec G204
-	err = cmd.Run()
-	if err != nil {
-		log.Fatalf("Failed to run gcloud login: %v", err)
-	}
+	fmt.Println("To authenticate sm with GCP Secret Manager, please run the official Google Cloud CLI command:")
+	fmt.Println("  gcloud auth application-default login")
+	fmt.Println("\nFor CI/CD or automated environments, pass a short-lived Access Token:")
+	fmt.Println("  export GCP_ACCESS_TOKEN=$(gcloud auth print-access-token)")
 }
 
 // fatalError logs a fatal bootstrap error to stderr and GCP Cloud Logging (if active), cleans up, and exits
@@ -898,65 +872,4 @@ func fatalError(loggingClient *logging.Client, email, serviceName, envName, cmdN
 
 	cleanupFiles()
 	os.Exit(1)
-}
-
-// isSecureGcloudPath checks if the resolved gcloud executable path is secure
-func isSecureGcloudPath(path string) bool {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-
-	// Reject paths in known world-writable or insecure locations
-	insecureDirs := []string{
-		"/tmp",
-		"/var/tmp",
-		"/dev/shm",
-		os.TempDir(),
-	}
-	for _, dir := range insecureDirs {
-		if strings.HasPrefix(absPath, dir) {
-			return false
-		}
-	}
-
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return false
-	}
-
-	// Ensure the file is not world-writable
-	mode := info.Mode()
-	if mode&0002 != 0 {
-		return false
-	}
-
-	// Read the first 1024 bytes of the file to verify the Google Cloud SDK header
-	// #nosec G304
-	file, err := os.Open(absPath)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = file.Close() }()
-
-	buf := make([]byte, 1024)
-	n, err := file.Read(buf)
-	if err != nil && err.Error() != "EOF" {
-		return false
-	}
-	content := string(buf[:n])
-
-	// Verify the preamble/copyright header for shell script wrappers (macOS/Linux)
-	// and cmd/powershell wrappers (Windows)
-	hasGoogleCopyright := strings.Contains(content, "Google Inc.") || strings.Contains(content, "Google LLC")
-	hasPreamble := strings.Contains(content, "<cloud-sdk-sh-preamble>") || strings.Contains(content, "cloud-sdk")
-
-	// If it is a binary (rare but possible), we bypass content inspection,
-	// but for script wrappers we verify the signature
-	if !strings.HasPrefix(content, "#!") && !strings.Contains(content, "@echo") {
-		// Fallback for binaries: verify path and permission controls only
-		return true
-	}
-
-	return hasGoogleCopyright || hasPreamble
 }
