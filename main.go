@@ -67,6 +67,12 @@ func main() {
 		return
 	}
 
+	// Support "sm login" command directly
+	if len(args) > 0 && args[0] == "login" {
+		runLogin()
+		return
+	}
+
 	if len(args) == 0 {
 		log.Fatalf("Error: No target command specified. Usage: sm run -- [command] [args...]")
 	}
@@ -844,6 +850,20 @@ func runStatus(projectFlag, serviceFlag, reasonFlag, cliToken string) {
 	}
 
 	fmt.Println("  Secret Manager API: Accessible (Successfully listed secrets)")
+}
+
+// runLogin triggers the GCP application-default login flow
+func runLogin() {
+	fmt.Println("Authenticating sm (Secret Manager)...")
+	cmd := exec.Command("gcloud", "auth", "application-default", "login")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	// #nosec G204
+	err := cmd.Run()
+	if err != nil {
+		log.Fatalf("Failed to run gcloud login: %v", err)
+	}
 }
 
 // fatalError logs a fatal bootstrap error to stderr and GCP Cloud Logging (if active), cleans up, and exits
