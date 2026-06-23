@@ -357,13 +357,17 @@ func detectProject(cliProject string) string {
 	}
 
 	// Fallback to active gcloud config
-	cmd := exec.Command("gcloud", "config", "get-value", "project")
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err == nil {
-		p := strings.TrimSpace(stdout.String())
-		if p != "" && !strings.Contains(p, "unset") && !strings.Contains(p, "Error") {
-			return p
+	gcloudPath, err := exec.LookPath("gcloud")
+	if err == nil && isSecureGcloudPath(gcloudPath) {
+		// #nosec G204
+		cmd := exec.Command(gcloudPath, "config", "get-value", "project")
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		if err := cmd.Run(); err == nil {
+			p := strings.TrimSpace(stdout.String())
+			if p != "" && !strings.Contains(p, "unset") && !strings.Contains(p, "Error") {
+				return p
+			}
 		}
 	}
 
@@ -854,17 +858,19 @@ func runStatus(projectFlag, serviceFlag, reasonFlag, cliToken string) {
 
 // runLogin triggers the GCP application-default login flow
 func runLogin() {
-	if _, err := exec.LookPath("gcloud"); err != nil {
-		log.Fatalf("Error: 'gcloud' CLI not found in PATH.\nPlease install Google Cloud SDK to authenticate: https://cloud.google.com/sdk/docs/install")
+	gcloudPath, err := exec.LookPath("gcloud")
+	if err != nil || !isSecureGcloudPath(gcloudPath) {
+		log.Fatalf("Error: 'gcloud' CLI not found in PATH or failed execution safety checks.\nPlease install Google Cloud SDK securely to authenticate: https://cloud.google.com/sdk/docs/install")
 	}
 
 	fmt.Println("Authenticating sm (Secret Manager)...")
-	cmd := exec.Command("gcloud", "auth", "application-default", "login")
+	// #nosec G204
+	cmd := exec.Command(gcloudPath, "auth", "application-default", "login")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	// #nosec G204
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		log.Fatalf("Failed to run gcloud login: %v", err)
 	}
@@ -892,4 +898,65 @@ func fatalError(loggingClient *logging.Client, email, serviceName, envName, cmdN
 
 	cleanupFiles()
 	os.Exit(1)
+}
+
+// isSecureGcloudPath checks if the resolved gcloud executable path is secure
+func isSecureGcloudPath(path string) bool {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+
+	// Reject paths in known world-writable or insecure locations
+	insecureDirs := []string{
+		"/tmp",
+		"/var/tmp",
+		"/dev/shm",
+		os.TempDir(),
+	}
+	for _, dir := range insecureDirs {
+		if strings.HasPrefix(absPath, dir) {
+			return false
+		}
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return false
+	}
+
+	// Ensure the file is not world-writable
+	mode := info.Mode()
+	if mode&0002 != 0 {
+		return false
+	}
+
+	// Read the first 1024 bytes of the file to verify the Google Cloud SDK header
+	// #nosec G304
+	file, err := os.Open(absPath)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = file.Close() }()
+
+	buf := make([]byte, 1024)
+	n, err := file.Read(buf)
+	if err != nil && err.Error() != "EOF" {
+		return false
+	}
+	content := string(buf[:n])
+
+	// Verify the preamble/copyright header for shell script wrappers (macOS/Linux)
+	// and cmd/powershell wrappers (Windows)
+	hasGoogleCopyright := strings.Contains(content, "Google Inc.") || strings.Contains(content, "Google LLC")
+	hasPreamble := strings.Contains(content, "<cloud-sdk-sh-preamble>") || strings.Contains(content, "cloud-sdk")
+
+	// If it is a binary (rare but possible), we bypass content inspection,
+	// but for script wrappers we verify the signature
+	if !strings.HasPrefix(content, "#!") && !strings.Contains(content, "@echo") {
+		// Fallback for binaries: verify path and permission controls only
+		return true
+	}
+
+	return hasGoogleCopyright || hasPreamble
 }
