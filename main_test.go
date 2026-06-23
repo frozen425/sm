@@ -148,10 +148,7 @@ func TestMergeEnviron(t *testing.T) {
 	// Reconstruct map from merged environment slices
 	actualMap := make(map[string]string)
 	for _, e := range merged {
-		parts := reflect.ValueOf(e).Interface().(string)
-		kv := reflect.ValueOf(parts).Interface().(string)
-		idx := reflect.ValueOf(kv).Interface().(string)
-		split := reflect.ValueOf(strings.SplitN(idx, "=", 2)).Interface().([]string)
+		split := strings.SplitN(e, "=", 2)
 		if len(split) == 2 {
 			actualMap[split[0]] = split[1]
 		}
@@ -184,4 +181,50 @@ func TestExtractDestination(t *testing.T) {
 				test.uri, dst, uri, test.expectedDst, test.expectedURI)
 		}
 	}
+}
+
+func FuzzParseURI(f *testing.F) {
+	seeds := []string{
+		"sm://",
+		"sm://auto",
+		"sm://db-secret",
+		"sm://db-secret/2",
+		"sm://other-project/db-secret",
+		"sm://projects/other-project/secrets/db-secret/versions/4",
+	}
+	for _, seed := range seeds {
+		f.Add(seed, "default-proj")
+	}
+	f.Fuzz(func(t *testing.T, uri string, defaultProject string) {
+		_, _, _, _ = ParseURI(uri, defaultProject)
+	})
+}
+
+func FuzzSanitizeReason(f *testing.F) {
+	seeds := []string{
+		"sm env injection",
+		"sm-env-injection",
+		"spaces   trim",
+		"!@#$%^&*",
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, reason string) {
+		_ = sanitizeReason(reason)
+	})
+}
+
+func FuzzExtractDestination(f *testing.F) {
+	seeds := []string{
+		"sm://",
+		"sm://my-secret?destination=/tmp/file.txt",
+		"sm://projects/p/secrets/s/versions/1?destination=/var/run/secret",
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, uri string) {
+		_, _ = extractDestination(uri)
+	})
 }

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"cloud.google.com/go/compute/metadata"
@@ -705,18 +706,28 @@ func forwardSignals(cmd *exec.Cmd) {
 	}()
 }
 
-var cleanupRegistry []string
+var (
+	cleanupRegistry []string
+	cleanupMu       sync.Mutex
+	cleanupOnce     sync.Once
+)
 
 func registerCleanup(path string) {
+	cleanupMu.Lock()
+	defer cleanupMu.Unlock()
 	cleanupRegistry = append(cleanupRegistry, path)
 }
 
 func cleanupFiles() {
-	for _, f := range cleanupRegistry {
-		if f != "" {
-			_ = os.Remove(f)
+	cleanupOnce.Do(func() {
+		cleanupMu.Lock()
+		defer cleanupMu.Unlock()
+		for _, f := range cleanupRegistry {
+			if f != "" {
+				_ = os.Remove(f)
+			}
 		}
-	}
+	})
 }
 
 // resolveToken checks CLI flag and env vars for direct GCP access token
