@@ -28,11 +28,18 @@ import (
 	grpcMetadata "google.golang.org/grpc/metadata"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	// Register secure file cleanup on exit
 	defer cleanupFiles()
 
 	// Parse CLI flags
+	versionFlag := flag.Bool("version", false, "Print version information and exit")
 	envFile := flag.String("env-file", ".env.tpl", "Path to the environment template file")
 	project := flag.String("project", "", "GCP Project ID (optional, auto-detected by default)")
 	service := flag.String("service", "", "Service or component name for secret scoping (optional)")
@@ -40,6 +47,11 @@ func main() {
 	reason := flag.String("request-reason", "", "Justification reason for GCP Audit Logs (optional)")
 	cliToken := flag.String("token", "", "Direct GCP OAuth2 access token to use (optional)")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("sm version %s (commit: %s, built at: %s)\n", version, commit, date)
+		return
+	}
 
 	// Handle command arguments
 	args := flag.Args()

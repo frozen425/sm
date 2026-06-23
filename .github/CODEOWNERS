@@ -1,0 +1,4 @@
+# Default code owners for sm repository
+# Automatically assigns frozen425 as a reviewer for PRs
+
+* @frozen425
