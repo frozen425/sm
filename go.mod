@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/logging v1.13.2
 	cloud.google.com/go/secretmanager v1.20.0
 	golang.org/x/oauth2 v0.36.0
-	google.golang.org/api v0.285.0
+	google.golang.org/api v0.286.0
 	google.golang.org/grpc v1.81.1
 )
 
