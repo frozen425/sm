@@ -854,6 +854,10 @@ func runStatus(projectFlag, serviceFlag, reasonFlag, cliToken string) {
 
 // runLogin triggers the GCP application-default login flow
 func runLogin() {
+	if _, err := exec.LookPath("gcloud"); err != nil {
+		log.Fatalf("Error: 'gcloud' CLI not found in PATH.\nPlease install Google Cloud SDK to authenticate: https://cloud.google.com/sdk/docs/install")
+	}
+
 	fmt.Println("Authenticating sm (Secret Manager)...")
 	cmd := exec.Command("gcloud", "auth", "application-default", "login")
 	cmd.Stdin = os.Stdin
