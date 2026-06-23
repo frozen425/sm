@@ -43,10 +43,11 @@ For a comprehensive, step-by-step guide on creating secrets with initial placeho
 ## Quick Start
 
 ### 1. Set Up Google Cloud Authentication
-Make sure you are authenticated with GCP locally using Application Default Credentials (ADC):
+Authenticate with GCP using the built-in login helper:
 ```bash
-gcloud auth application-default login
+sm login
 ```
+*(This triggers the standard Google Cloud Application Default Credentials (ADC) browser login flow behind the scenes).*
 
 ### 2. Create a Secret in Secret Manager
 Create a secret that aligns with environment naming conventions (e.g., prefixing with `localdev` for local runs):

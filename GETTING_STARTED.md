@@ -87,9 +87,9 @@ rm temp_secret.txt
 ## Step 3: Configure your Project for `sm`
 
 ### 1. Authenticate your Local Shell
-Ensure your local application runner is authenticated with Google Application Default Credentials (ADC):
+Ensure your local application runner is authenticated with Google Application Default Credentials (ADC) by running the built-in login tool:
 ```bash
-gcloud auth application-default login
+sm login
 ```
 
 ### 2. Create your `.env.tpl` Template File
