@@ -28,6 +28,11 @@ import (
 	grpcMetadata "google.golang.org/grpc/metadata"
 )
 
+const (
+	projectsConst = "projects"
+	latestConst   = "latest"
+)
+
 var (
 	version = "dev"
 	commit  = "none"
@@ -201,13 +206,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to initialize GCP Secret Manager client: %v", err)
 		}
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 
 		// Fetch identity email using oauth2 service for audit logging
 		oauthService, err := oauth2Service.NewService(ctx, option.WithTokenSource(ts))
 		if err == nil {
-			userinfo, err := oauthService.Userinfo.Get().Do()
-			if err == nil {
+			userinfo, errInfo := oauthService.Userinfo.Get().Do()
+			if errInfo == nil {
 				email = userinfo.Email
 			}
 		}
@@ -216,7 +221,7 @@ func main() {
 		logClient, err := logging.NewClient(ctx, projectID, option.WithTokenSource(ts), option.WithUserAgent("sm/1.0.0"))
 		if err == nil {
 			loggingClient = logClient
-			defer loggingClient.Close()
+			defer func() { _ = loggingClient.Close() }()
 		}
 
 		// 4. Attach request reason for Audit Logging
@@ -283,6 +288,7 @@ func main() {
 	}
 
 	// Execute target command with merged environment
+	// #nosec G204
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -357,7 +363,7 @@ func detectProject(cliProject string) string {
 
 	// Fallback to Compute Engine metadata server
 	if metadata.OnGCE() {
-		if p, err := metadata.ProjectID(); err == nil && p != "" {
+		if p, err := metadata.ProjectIDWithContext(context.Background()); err == nil && p != "" {
 			return p
 		}
 	}
@@ -423,7 +429,7 @@ func toKebabCase(s string) string {
 	return strings.ToLower(s)
 }
 
-// generateCandidates generates a prioritised list of potential secret names
+// generateCandidates generates a prioritized list of potential secret names
 func generateCandidates(key, env, service string) []string {
 	kebab := toKebabCase(key)
 	original := key
@@ -514,7 +520,7 @@ func getAvailableSecrets(ctx context.Context, client *secretmanager.Client, proj
 // fetchSecretValue retrieves the payload value of the matched secret
 func fetchSecretValue(ctx context.Context, client *secretmanager.Client, projectID, secretName, version string) (string, error) {
 	if version == "" {
-		version = "latest"
+		version = latestConst
 	}
 	name := fmt.Sprintf("projects/%s/secrets/%s/versions/%s", projectID, secretName, version)
 	req := &secretmanagerpb.AccessSecretVersionRequest{
@@ -529,7 +535,7 @@ func fetchSecretValue(ctx context.Context, client *secretmanager.Client, project
 
 // isVersionIdentifier checks if a string represents a valid version identifier
 func isVersionIdentifier(s string) bool {
-	if s == "latest" {
+	if s == latestConst {
 		return true
 	}
 	_, err := strconv.Atoi(s)
@@ -541,7 +547,7 @@ func ParseURI(uri string, defaultProject string) (project, secret, version strin
 	path := strings.TrimPrefix(uri, "sm://")
 	path = strings.Trim(path, "/")
 	if path == "" || path == "auto" {
-		return defaultProject, "", "latest", nil
+		return defaultProject, "", latestConst, nil
 	}
 
 	parts := strings.Split(path, "/")
@@ -549,9 +555,9 @@ func ParseURI(uri string, defaultProject string) (project, secret, version strin
 	case 1:
 		project = defaultProject
 		secret = parts[0]
-		version = "latest"
+		version = latestConst
 	case 2:
-		if parts[0] == "projects" {
+		if parts[0] == projectsConst {
 			return "", "", "", fmt.Errorf("invalid path starting with projects but incomplete")
 		}
 		if isVersionIdentifier(parts[1]) {
@@ -561,22 +567,22 @@ func ParseURI(uri string, defaultProject string) (project, secret, version strin
 		} else {
 			project = parts[0]
 			secret = parts[1]
-			version = "latest"
+			version = latestConst
 		}
 	case 3:
 		project = parts[0]
 		secret = parts[1]
 		version = parts[2]
 	case 4:
-		if parts[0] == "projects" && parts[2] == "secrets" {
+		if parts[0] == projectsConst && parts[2] == "secrets" {
 			project = parts[1]
 			secret = parts[3]
-			version = "latest"
+			version = latestConst
 		} else {
 			return "", "", "", fmt.Errorf("invalid secret path structure: %s", uri)
 		}
 	case 6:
-		if parts[0] == "projects" && parts[2] == "secrets" && parts[4] == "versions" {
+		if parts[0] == projectsConst && parts[2] == "secrets" && parts[4] == "versions" {
 			project = parts[1]
 			secret = parts[3]
 			version = parts[5]
@@ -635,11 +641,12 @@ func resolveVariable(ctx context.Context, client *secretmanager.Client, key, val
 
 // parseEnvTpl reads variables from a .env.tpl file
 func parseEnvTpl(filename string) (map[string]string, error) {
+	// #nosec G304
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	env := make(map[string]string)
 	scanner := bufio.NewScanner(file)
@@ -798,14 +805,14 @@ func runStatus(projectFlag, serviceFlag, reasonFlag, cliToken string) {
 		os.Exit(1)
 	}
 
-	email := "Unknown"
+	var email string
 	oauthService, err := oauth2Service.NewService(ctx, option.WithTokenSource(ts))
 	if err == nil {
-		userinfo, err := oauthService.Userinfo.Get().Do()
-		if err == nil {
+		userinfo, errInfo := oauthService.Userinfo.Get().Do()
+		if errInfo == nil {
 			email = userinfo.Email
 		} else {
-			email = fmt.Sprintf("Token active (Email lookup failed: %v)", err)
+			email = fmt.Sprintf("Token active (Email lookup failed: %v)", errInfo)
 		}
 	} else {
 		email = fmt.Sprintf("Token active (OAuth2 service init failed: %v)", err)
@@ -818,7 +825,7 @@ func runStatus(projectFlag, serviceFlag, reasonFlag, cliToken string) {
 		fmt.Printf("  Secret Manager API: Connection Failed (%v)\n", err)
 		os.Exit(1)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	auditReason := reasonFlag
 	if auditReason == "" {
@@ -846,7 +853,7 @@ func fatalError(loggingClient *logging.Client, email, serviceName, envName, cmdN
 
 	if loggingClient != nil {
 		lg := loggingClient.Logger("sm-audit")
-		lg.LogSync(context.Background(), logging.Entry{
+		_ = lg.LogSync(context.Background(), logging.Entry{
 			Payload: map[string]interface{}{
 				"event":      "bootstrap_failed",
 				"service":    serviceName,
