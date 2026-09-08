@@ -1,12 +1,12 @@
 module github.com/frozen425/sm
 
-go 1.25.8
+go 1.26.0
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0
 	cloud.google.com/go/logging v1.13.2
 	cloud.google.com/go/secretmanager v1.20.0
-	golang.org/x/oauth2 v0.36.0
+	golang.org/x/oauth2 v0.37.0
 	google.golang.org/api v0.285.0
 	google.golang.org/grpc v1.81.1
 )
